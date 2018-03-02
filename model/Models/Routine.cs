@@ -2,9 +2,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text;
 
 namespace SchemaZen.Library.Models {
-	public class Routine : INameable, IHasOwner, IScriptable {
+	public class Routine : BaseDBObject, IHasOwner {
 		public enum RoutineKind {
 			Procedure,
 			Function,
@@ -14,7 +15,7 @@ namespace SchemaZen.Library.Models {
 		}
 
 		public bool AnsiNull { get; set; }
-		public string Name { get; set; }
+		//public string Name { get; set; }
 		public bool QuotedId { get; set; }
 		public RoutineKind RoutineType { get; set; }
 		public string Owner { get; set; }
@@ -23,6 +24,7 @@ namespace SchemaZen.Library.Models {
 		public string RelatedTableSchema { get; set; }
 		public string RelatedTableName { get; set; }
 		public Database Db { get; set; }
+		//public ExtendedPropertyList ExtendedProperties = new ExtendedPropertyList();
 
 		private const string _sqlCreateRegex =
 			@"\A" + Database.SqlWhitespaceOrCommentRegex + @"*?(CREATE)" + Database.SqlWhitespaceOrCommentRegex;
@@ -67,19 +69,26 @@ namespace SchemaZen.Library.Models {
 				after +=
 						$"{Environment.NewLine}{(Disabled ? "DISABLE" : "ENABLE")} TRIGGER [{Owner}].[{Name}] ON [{RelatedTableSchema}].[{RelatedTableName}]{Environment.NewLine}GO{Environment.NewLine}";
 
-			if (string.IsNullOrEmpty(definition))
-				definition = $"/* missing definition for {RoutineType} [{Owner}].[{Name}] */";
-			else
-				definition = RemoveExtraNewLines(definition);
+		    if (string.IsNullOrEmpty(definition))
+		        definition = $"/* missing definition for {RoutineType} [{Owner}].[{Name}] */";
+		    else
+		        definition = RemoveExtraNewLines(definition);
 
-			return before + definition + after;
+			var text = new StringBuilder();
+			text.AppendLine();
+			text.Append(ExtendedProperties.Script());
+			text.AppendLine();
+
+			var header = HeaderScriptCreate();
+
+			return header + before + definition + after + text.ToString();
 		}
 
-		private static string RemoveExtraNewLines(string definition) {
-			return definition.Trim('\r', '\n');
-		}
+	    private static string RemoveExtraNewLines(string definition) {
+	        return definition.Trim('\r', '\n');
+	    }
 
-		public string ScriptCreate() {
+	    public override string ScriptCreate() {
 			return ScriptBase(Db, Text);
 		}
 

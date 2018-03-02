@@ -1,9 +1,9 @@
 ﻿namespace SchemaZen.Library.Models {
-	public class Role : IScriptable, INameable {
+	public class Role : BaseDBObject {
 		public string Name { get; set; }
 		public string Script { get; set; }
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			return Script;
 		}
 	}

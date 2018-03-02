@@ -9,16 +9,17 @@ using System.Runtime.Remoting.Metadata.W3cXsd2001;
 using System.Text;
 
 namespace SchemaZen.Library.Models {
-	public class Schema : INameable, IHasOwner, IScriptable {
-		public string Name { get; set; }
+	public class Schema : BaseDBObject, IHasOwner {
+		//public string Name { get; set; }
 		public string Owner { get; set; }
+		public int MaxColumnIdUsed { get; set; }
 
 		public Schema(string name, string owner) {
 			Owner = owner;
 			Name = name;
 		}
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			return $@"
 if not exists(select s.schema_id from sys.schemas s where s.name = '{Name}') 
 	and exists(select p.principal_id from sys.database_principals p where p.name = '{Owner}') begin
@@ -28,28 +29,36 @@ end
 		}
 	}
 
-	public class Table : INameable, IHasOwner, IScriptable {
-		private const string _rowSeparator = "\r\n";
-		private const string _tab = "\t";
+	public class Table : BaseDBObject, IHasOwner {
+        private const string _rowSeparator = "\r\n";
+        private const string _tab = "\t";
 		private const string _escapeTab = "--SchemaZenTAB--";
-		private const string _carriageReturn = "\r";
+		private const string _carriageReturn  = "\r";
 		private const string _escapeCarriageReturn = "--SchemaZenCR--";
-		private const string _lineFeed = "\n";
-		private const string _escapeLineFeed = "--SchemaZenLF--";
-		private const string _nullValue = "--SchemaZenNull--";
-		private const string _dateTimeFormat = "yyyy-MM-dd HH:mm:ss.FFFFFFF";
+        private const string _lineFeed = "\n";
+        private const string _escapeLineFeed = "--SchemaZenLF--";
+        private const string _nullValue = "--SchemaZenNull--";
+	    private const string _dateTimeFormat = "yyyy-MM-dd HH:mm:ss.FFFFFFF";
 
-		public const int RowsInBatch = 15000;
+        public const int RowsInBatch = 15000;
 
 		public ColumnList Columns = new ColumnList();
+		//public ExtendedPropertyList ExtendedProperties = new ExtendedPropertyList();
 		private readonly List<Constraint> _constraints = new List<Constraint>();
-		public string Name { get; set; }
 		public string Owner { get; set; }
 		public bool IsType;
 
-		public Table(string owner, string name) {
+		public string PartitionSQL { get; set; }
+		public Table(string owner, string name)
+		{
 			Owner = owner;
 			Name = name;
+		}
+		public Table(string owner, string name, DateTime createDate, DateTime modifyDate) {
+			Owner = owner;
+			Name = name;
+			CreateDate = createDate;
+			ModifyDate = modifyDate;
 		}
 
 		public Constraint PrimaryKey {
@@ -137,18 +146,29 @@ end
 			return diff;
 		}
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			var text = new StringBuilder();
-			text.Append($"CREATE {(IsType ? "TYPE" : "TABLE")} [{Owner}].[{Name}] {(IsType ? "AS TABLE " : string.Empty)}(\r\n");
+			text.Append(HeaderScriptCreate());
+
+			text.AppendLine($"CREATE {(IsType ? "TYPE" : "TABLE")} [{Owner}].[{Name}] {(IsType ? "AS TABLE " : string.Empty)}(\r\n");
 			text.Append(Columns.Script());
 			if (_constraints.Count > 0) text.AppendLine();
 			foreach (var c in _constraints.OrderBy(x => x.Name).Where(c => c.Type != "INDEX")) {
 				text.AppendLine("   ," + c.ScriptCreate());
 			}
-			text.AppendLine(")");
+			text.Append(")");
+			if (PartitionSQL != null)
+			{
+				text.AppendLine($" ON {PartitionSQL}");
+			}
+
 			text.AppendLine();
+			text.Append(ExtendedProperties.Script());
+			text.AppendLine();
+
 			foreach (var c in _constraints.Where(c => c.Type == "INDEX")) {
 				text.AppendLine(c.ScriptCreate());
+				text.AppendLine();
 			}
 			return text.ToString();
 		}
@@ -183,13 +203,13 @@ end
 									data.Write(_nullValue);
 								else if (dr[c.Name] is byte[])
 									data.Write(new SoapHexBinary((byte[])dr[c.Name]).ToString());
-								else if (dr[c.Name] is DateTime)
-									data.Write(((DateTime)dr[c.Name]).ToString(_dateTimeFormat, CultureInfo.InvariantCulture));
+                                else if (dr[c.Name] is DateTime)
+								    data.Write(((DateTime) dr[c.Name]).ToString(_dateTimeFormat, CultureInfo.InvariantCulture));
 								else
 									data.Write(dr[c.Name].ToString()
 										.Replace(_tab, _escapeTab)
-										.Replace(_lineFeed, _escapeLineFeed)
-										.Replace(_carriageReturn, _escapeCarriageReturn));
+                                        .Replace(_lineFeed, _escapeLineFeed)
+                                        .Replace(_carriageReturn, _escapeCarriageReturn));
 								if (c != cols.Last())
 									data.Write(_tab);
 							}
@@ -256,7 +276,7 @@ end
 								row[j] = ConvertType(cols[j].Type,
 									fields[j].Replace(_escapeLineFeed, _lineFeed).Replace(_escapeCarriageReturn, _carriageReturn).Replace(_escapeTab, _tab));
 							} catch (FormatException ex) {
-								throw new DataFileException($"{ex.Message} at column {j + 1}", filename, linenumber);
+								throw new DataFileException($"{ex.ToString()} at column {j + 1}", filename, linenumber);
 							}
 						}
 						dt.Rows.Add(row);

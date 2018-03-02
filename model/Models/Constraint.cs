@@ -3,11 +3,11 @@ using System.Linq;
 using SchemaZen.Library.Extensions;
 
 namespace SchemaZen.Library.Models {
-	public class Constraint : INameable, IScriptable {
+	public class Constraint : BaseDBObject {
 		public string IndexType { get; set; }
 		public List<ConstraintColumn> Columns { get; set; } = new List<ConstraintColumn>();
 		public List<string> IncludedColumns { get; set; } = new List<string>();
-		public string Name { get; set; }
+		//public string Name { get; set; }
 		public Table Table { get; set; }
 		public string Type { get; set; }
 		public string Filter { get; set; }
@@ -33,7 +33,7 @@ namespace SchemaZen.Library.Models {
 
 		public string UniqueText => Type != " PRIMARY KEY" && !Unique ? "" : " UNIQUE";
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			switch (Type) {
 				case "CHECK":
 					var notForReplicationOption = _isNotForReplication ? "NOT FOR REPLICATION" : "";

@@ -10,6 +10,7 @@ namespace SchemaZen.console {
 				return ConsoleCommandDispatcher.DispatchCommand(
 					GetCommands(), args, Console.Out);
 			} catch (Exception ex) {
+				Console.WriteLine(ex.ToString());
 				Console.WriteLine(ex.Message);
 				Console.WriteLine(ex.StackTrace);
 				return -1;

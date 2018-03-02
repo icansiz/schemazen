@@ -4,15 +4,18 @@ using ManyConsole;
 using NDesk.Options;
 using SchemaZen.Library.Command;
 
-namespace SchemaZen.console {
-	internal class Compare : ConsoleCommand {
+namespace SchemaZen.console
+{
+	internal class Compare : ConsoleCommand
+	{
 		private string _source;
 		private string _target;
 		private string _outDiff;
 		private bool _overwrite;
 		private bool _verbose;
 
-		public Compare() {
+		public Compare()
+		{
 			IsCommand("Compare", "CreateDiff two databases.");
 			Options = new OptionSet();
 			SkipsCommandSummaryBeforeRunning();
@@ -38,28 +41,36 @@ namespace SchemaZen.console {
 				o => _verbose = o != null);
 		}
 
-		public override int Run(string[] remainingArguments) {
-			if (!string.IsNullOrEmpty(_outDiff)) {
+		public override int Run(string[] remainingArguments)
+		{
+			if (!string.IsNullOrEmpty(_outDiff))
+			{
 				Console.WriteLine();
-				if (!_overwrite && File.Exists(_outDiff)) {
+				if (!_overwrite && File.Exists(_outDiff))
+				{
 					var question = $"{_outDiff} already exists - do you want to replace it";
-					if (!ConsoleQuestion.AskYN(question)) {
+					if (!ConsoleQuestion.AskYN(question))
+					{
 						return 1;
 					}
 				}
 			}
 
-			var compareCommand = new CompareCommand {
+			var compareCommand = new CompareCommand
+			{
 				Source = _source,
 				Target = _target,
 				Verbose = _verbose,
 				OutDiff = _outDiff
 			};
 
-			try {
+			try
+			{
 				return compareCommand.Execute() ? 1 : 0;
-			} catch (Exception ex) {
-				throw new ConsoleHelpAsException(ex.Message);
+			}
+			catch (Exception ex)
+			{
+				throw new ConsoleHelpAsException(ex.ToString());
 			}
 		}
 	}

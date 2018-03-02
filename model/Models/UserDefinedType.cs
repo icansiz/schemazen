@@ -5,9 +5,9 @@ using System.Text;
 
 namespace SchemaZen.Library.Models {
 
-	public class UserDefinedType : INameable, IHasOwner, IScriptable {
+	public class UserDefinedType : BaseDBObject, IHasOwner {
 
-		public string Name { get; set; }
+		//public string Name { get; set; }
 
 		public string Owner { get; set; }
 
@@ -82,7 +82,7 @@ namespace SchemaZen.Library.Models {
 			_nullable = nullable;
 		}
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			var text = new StringBuilder();
 
 			text.Append($"CREATE TYPE [{Owner}].[{Name}] FROM [{BaseTypeName}]");

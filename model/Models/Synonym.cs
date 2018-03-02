@@ -1,6 +1,6 @@
 ﻿namespace SchemaZen.Library.Models {
-	public class Synonym : INameable, IHasOwner, IScriptable {
-		public string Name { get; set; }
+	public class Synonym : BaseDBObject, IHasOwner {
+		//public string Name { get; set; }
 		public string Owner { get; set; }
 		public string BaseObjectName { get; set; }
 
@@ -9,7 +9,7 @@
 			Owner = owner;
 		}
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			return $"CREATE SYNONYM [{Owner}].[{Name}] FOR {BaseObjectName}";
 		}
 

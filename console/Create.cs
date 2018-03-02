@@ -39,10 +39,10 @@ namespace SchemaZen.console {
 			} catch (SqlFileException ex) {
 				_logger.Log(TraceLevel.Info, $@"{Environment.NewLine}An unexpected SQL error occurred while executing scripts, and the process wasn't completed.
 {ex.FileName.Replace("/", "\\")} (Line {ex.LineNumber}):");
-				_logger.Log(TraceLevel.Error, ex.Message);
+				_logger.Log(TraceLevel.Error, ex.ToString());
 				return -1;
 			} catch (Exception ex) {
-				throw new ConsoleHelpAsException(ex.Message);
+				throw new ConsoleHelpAsException(ex.ToString());
 			}
 			return 0;
 		}

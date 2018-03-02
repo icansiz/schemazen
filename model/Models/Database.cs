@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.SqlClient;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -53,7 +54,7 @@ namespace SchemaZen.Library.Models {
 		}
 
 		#endregion
-
+		
 		public const string SqlWhitespaceOrCommentRegex = @"(?>(?:\s+|--.*?(?:\r|\n)|/\*.*?\*/))";
 		public const string SqlEnclosedIdentifierRegex = @"\[.+?\]";
 		public const string SqlQuotedIdentifierRegex = "\".+?\"";
@@ -80,7 +81,9 @@ namespace SchemaZen.Library.Models {
 		public List<Role> Roles { get; set; } = new List<Role>();
 		public List<SqlUser> Users { get; set; } = new List<SqlUser>();
 		public List<Constraint> ViewIndexes { get; set; } = new List<Constraint>();
-
+		public List<PartitionScheme> PartitionSchemes { get; set; } = new List<PartitionScheme>();
+		public List<PartitionFunction> PartitionFunctions { get; set; } = new List<PartitionFunction>();
+		//public List<ExtendedProperty> ExtendedProperties { get; set; } = new List<ExtendedProperty>();
 		public DbProp FindProp(string name) {
 			return Props.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.CurrentCultureIgnoreCase));
 		}
@@ -105,6 +108,16 @@ namespace SchemaZen.Library.Models {
 			return Routines.FirstOrDefault(r => r.Name == name && r.Owner == schema);
 		}
 
+		public Routine FindRoutine(string name, string schema, Routine.RoutineKind routineType)
+		{
+			return Routines.FirstOrDefault(r => r.Name == name && r.Owner == schema && r.RoutineType == routineType);
+		}
+
+		private static Routine FindRoutineBase(IEnumerable<Routine> routines, string name, string schema)
+		{
+			return routines.FirstOrDefault(r => r.Name == name && r.Owner == schema);
+		}
+
 		public SqlAssembly FindAssembly(string name) {
 			return Assemblies.FirstOrDefault(a => a.Name == name);
 		}
@@ -122,21 +135,21 @@ namespace SchemaZen.Library.Models {
 		}
 
 		public List<Table> FindTablesRegEx(string pattern, string excludePattern = null) {
-			return Tables.Where(t => FindTablesRegExPredicate(t, pattern, excludePattern)).ToList();
-		}
+            return Tables.Where(t => FindTablesRegExPredicate(t, pattern, excludePattern)).ToList();
+        }
 
-		private static bool FindTablesRegExPredicate(Table table, string pattern, string excludePattern) {
-			var include = string.IsNullOrEmpty(pattern) || Regex.IsMatch(table.Name, pattern);
-			var exclude = !string.IsNullOrEmpty(excludePattern) && Regex.IsMatch(table.Name, excludePattern);
+        private static bool FindTablesRegExPredicate(Table table, string pattern, string excludePattern) {
+            var include = string.IsNullOrEmpty(pattern) || Regex.IsMatch(table.Name, pattern);
+            var exclude = !string.IsNullOrEmpty(excludePattern) && Regex.IsMatch(table.Name, excludePattern);
 
-			return include && !exclude;
-		}
+            return include && !exclude;
+        }
 
-		#endregion
+        #endregion
 
-		private static readonly HashSet<string> _dirs = new HashSet<string> {
+        private static readonly HashSet<string> _dirs = new HashSet<string> {
 			"user_defined_types", "tables", "foreign_keys", "assemblies", "functions", "procedures", "triggers",
-			"views", "xmlschemacollections", "data", "roles", "users", "synonyms", "table_types"
+			"views", "xmlschemacollections", "data", "roles", "users", "synonyms", "table_types", "partition_schemes", "partition_functions"
 		};
 
 		public static HashSet<string> Dirs => _dirs;
@@ -160,6 +173,7 @@ namespace SchemaZen.Library.Models {
 		#region Load
 
 		public void Load() {
+			//ExtendedProperties.Clear();
 			Tables.Clear();
 			TableTypes.Clear();
 			Routines.Clear();
@@ -170,6 +184,7 @@ namespace SchemaZen.Library.Models {
 			Users.Clear();
 			Synonyms.Clear();
 			Roles.Clear();
+			PartitionSchemes.Clear();
 
 			using (var cn = new SqlConnection(Connection)) {
 				cn.Open();
@@ -191,6 +206,10 @@ namespace SchemaZen.Library.Models {
 					LoadUsersAndLogins(cm);
 					LoadSynonyms(cm);
 					LoadRoles(cm);
+					LoadExtendedProperties(cm);
+					LoadPartitionSchemes(cm);
+					LoadPartitionFunctions(cm);
+					LoadTablePartitions(cm);
 				}
 			}
 		}
@@ -431,7 +450,9 @@ from #ScriptedRoles
 						m.uses_quoted_identifier,
 						isnull(s2.name, s3.name) as tableSchema,
 						isnull(t.name, v.name) as tableName,
-						tr.is_disabled as trigger_disabled
+						tr.is_disabled as trigger_disabled,
+						o.create_date,
+						o.modify_date
 					from sys.sql_modules m
 						inner join sys.objects o on m.object_id = o.object_id
 						inner join sys.schemas s on s.schema_id = o.schema_id
@@ -448,6 +469,8 @@ from #ScriptedRoles
 					r.Text = dr["definition"] is DBNull ? string.Empty : (string)dr["definition"];
 					r.AnsiNull = (bool)dr["uses_ansi_nulls"];
 					r.QuotedId = (bool)dr["uses_quoted_identifier"];
+					r.CreateDate = (DateTime)dr["create_date"];
+					r.ModifyDate = (DateTime)dr["modify_date"];
 					Routines.Add(r);
 
 					switch ((string)dr["type_desc"]) {
@@ -546,7 +569,7 @@ from #ScriptedRoles
 					fk.OnUpdate = (string)dr["UPDATE_RULE"];
 					fk.OnDelete = (string)dr["DELETE_RULE"];
 					fk.Check = !(bool)dr["is_disabled"];
-					fk.IsSystemNamed = (bool)dr["is_system_named"];
+				    fk.IsSystemNamed = (bool)dr["is_system_named"];
 				}
 			}
 
@@ -676,10 +699,10 @@ order by fk.name, fkc.constraint_column_id
 			using (var dr = cm.ExecuteReader()) {
 				while (dr.Read()) {
 					var t = FindTable((string)dr["TABLE_NAME"], (string)dr["TABLE_SCHEMA"]);
-					var column = t.Columns.Find((string)dr["COLUMN_NAME"]);
-					column.ComputedDefinition = (string)dr["DEFINITION"];
-					column.Persisted = (bool)dr["PERSISTED"];
-				}
+				    var column = t.Columns.Find((string) dr["COLUMN_NAME"]);
+                    column.ComputedDefinition = (string)dr["DEFINITION"];
+                    column.Persisted = (bool)dr["PERSISTED"];
+                }
 			}
 		}
 
@@ -730,7 +753,7 @@ order by fk.name, fkc.constraint_column_id
 						c.Identity = new Identity(seed, increment);
 					} catch (Exception ex) {
 						throw new ApplicationException(
-							string.Format("{0}.{1} : {2}", dr["TABLE_SCHEMA"], dr["TABLE_NAME"], ex.Message), ex);
+							string.Format("{0}.{1} : {2}", dr["TABLE_SCHEMA"], dr["TABLE_NAME"], ex.ToString()), ex);
 					}
 				}
 			}
@@ -835,10 +858,13 @@ order by fk.name, fkc.constraint_column_id
 			//get tables
 			cm.CommandText = @"
 				select 
-					TABLE_SCHEMA, 
-					TABLE_NAME 
-				from INFORMATION_SCHEMA.TABLES
-				where TABLE_TYPE = 'BASE TABLE'";
+					TABLE_SCHEMA = SCHEMA_NAME(schema_id),
+					TABLE_NAME = name,
+					CREATE_DATE = create_date,
+					MODIFY_DATE = modify_date,
+					MAX_COLUMN_ID_USED = max_column_id_used
+				from sys.tables
+				where type = 'U'";
 			using (var dr = cm.ExecuteReader()) {
 				LoadTablesBase(dr, false, Tables);
 			}
@@ -846,11 +872,14 @@ order by fk.name, fkc.constraint_column_id
 			//get table types
 			try {
 				cm.CommandText = @"
-				select 
+				select distinct
 					s.name as TABLE_SCHEMA,
-					tt.name as TABLE_NAME
+					tt.name as TABLE_NAME,
+					o.create_date as CREATE_DATE,
+					o.modify_date as MODIFY_DATE
 				from sys.table_types tt
 				inner join sys.schemas s on tt.schema_id = s.schema_id
+				inner join sys.objects o on o.name like 'TT_%'+tt.name+'%'
 				where tt.is_user_defined = 1
 				order by s.name, tt.name";
 				using (var dr = cm.ExecuteReader()) {
@@ -860,7 +889,6 @@ order by fk.name, fkc.constraint_column_id
 				// SQL server version doesn't support table types, nothing to do here
 			}
 		}
-
 
 		private void LoadUserDefinedTypes(SqlCommand cm) {
 			//get types
@@ -898,7 +926,7 @@ order by fk.name, fkc.constraint_column_id
 
 		private static void LoadTablesBase(SqlDataReader dr, bool areTableTypes, List<Table> tables) {
 			while (dr.Read()) {
-				tables.Add(new Table((string)dr["TABLE_SCHEMA"], (string)dr["TABLE_NAME"]) { IsType = areTableTypes });
+				tables.Add(new Table((string)dr["TABLE_SCHEMA"], (string)dr["TABLE_NAME"], (DateTime)dr["CREATE_DATE"], (DateTime)dr["MODIFY_DATE"]) { IsType = areTableTypes });
 			}
 		}
 
@@ -991,6 +1019,208 @@ where name = @dbname
 						FindProp("PARAMETERIZATION").Value = (bool)dr["is_parameterization_forced"] ? "FORCED" : "SIMPLE";
 					}
 					SetPropOnOff("DATE_CORRELATION_OPTIMIZATION", dr["is_date_correlation_on"]);
+				}
+			}
+		}
+
+
+		private void LoadExtendedProperties(SqlCommand cm)
+		{
+			//get columns
+			cm.CommandText = @"
+				select	OBJECT_TYPE = 
+						CASE o.type 
+							WHEN 'U' THEN 'TABLE' 
+							WHEN 'P' THEN 'PROCEDURE' 
+							WHEN 'V' THEN 'VIEW' 
+							WHEN 'FN' THEN 'FUNCTION'
+							ELSE o.TYPE_DESC
+						END,
+						OBJECT_SCHEMA = SCHEMA_NAME(o.schema_id),
+						OBJECT_NAME = o.NAME,
+						CHILD_ID = p.minor_id,
+						CHILD_NAME = c.name,
+						NAME = p.name,
+						VALUE = p.value
+				from sys.extended_properties p inner join sys.objects o on o.object_id = p.major_id
+				left join sys.columns c on c.object_id = o.object_id and c.column_id = p.minor_id
+				--where p.name NOT IN ('microsoft_database_tools_support') and p.name NOT LIKE 'MS_Diagram%'
+				order by OBJECT_TYPE, OBJECT_SCHEMA, OBJECT_NAME, CHILD_ID, NAME
+				";
+			using (var dr = cm.ExecuteReader())
+			{
+				LoadExtendedPropertiesBase(dr);
+			}
+
+		}
+
+		private void LoadExtendedPropertiesBase(IDataReader dr)
+		{
+			//Table table = null;
+			while (dr.Read())
+			{
+				switch ((string)dr["OBJECT_TYPE"]) {
+					case "TABLE": LoadExtendedPropertyToObject(dr, Tables); break;
+					case "PROCEDURE": LoadExtendedPropertyToObject(dr, Routines); break;
+					case "FUNCTION": LoadExtendedPropertyToObject(dr, Routines); break;
+					case "VIEW": LoadExtendedPropertyToObject(dr, Routines); break;
+					case "TRIGGER": LoadExtendedPropertyToObject(dr, Routines); break;
+					case "PRIMARY_KEY_CONSTRAINT": break;
+				}
+			}
+		}
+
+		private void LoadExtendedPropertyToObject(IDataReader dr, List<Table> tables)
+		{
+			var e = new ExtendedProperty
+			{
+				Name = (string)dr["NAME"],
+				Value = dr["VALUE"] != null && dr["VALUE"] != DBNull.Value ? dr["VALUE"].ToString() : string.Empty,
+				Level0Type = "SCHEMA",
+				Level0Name = (string)dr["OBJECT_SCHEMA"],
+				Level1Type = "TABLE",
+				Level1Name = (string)dr["OBJECT_NAME"],
+			};
+			if (dr["CHILD_NAME"] != DBNull.Value)
+			{
+				e.Level2Type = "COLUMN";
+				e.Level2Name = (string)dr["CHILD_NAME"];
+			}
+
+			Table table = null;
+			table = FindTableBase(tables, (string)dr["OBJECT_NAME"], (string)dr["OBJECT_SCHEMA"]);
+			if (table != null)
+			{
+				table.ExtendedProperties.Add(e);
+			}
+		}
+		private void LoadExtendedPropertyToObject(IDataReader dr, List<Routine> routines)
+		{
+			var e = new ExtendedProperty
+			{
+				Name = (string)dr["NAME"],
+				Value = dr["VALUE"] != null && dr["VALUE"] != DBNull.Value ? dr["VALUE"].ToString() : string.Empty,
+				Level0Type = "SCHEMA",
+				Level0Name = (string)dr["OBJECT_SCHEMA"],
+				Level1Type = (string)dr["OBJECT_TYPE"],
+				Level1Name = (string)dr["OBJECT_NAME"],
+			};
+			Routine routine = null;
+			routine = FindRoutineBase(routines, (string)dr["OBJECT_NAME"], (string)dr["OBJECT_SCHEMA"]);
+			if (routine != null)
+			{
+				routine.ExtendedProperties.Add(e);
+			}
+		}
+
+
+		private void LoadTablePartitions(SqlCommand cm)
+		{
+			//get table partitions
+			cm.CommandText = @"
+				select distinct OBJECT_SCHEMA=schema_name(o.schema_id), OBJECT_NAME=o.name, ps.Name AS PartitionScheme, i.index_id, sc.name,
+					PartitionSQL = QUOTENAME(ps.name)+'('+QUOTENAME(sc.name)+')'
+					from sys.indexes i  
+					inner join sys.partitions p ON i.object_id=p.object_id AND i.index_id=p.index_id  
+					inner join sys.partition_schemes ps on ps.data_space_id = i.data_space_id  
+					inner join sys.objects o on o.object_id = i.object_id
+					inner join sys.index_columns ic on ic.partition_ordinal > 0 and ic.index_id = i.index_id and ic.object_id = o.object_id
+					inner join sys.columns sc on sc.object_id = ic.object_id and sc.column_id = ic.column_id 
+				where i.index_id < 2";
+			using (var dr = cm.ExecuteReader())
+			{
+				while (dr.Read())
+				{
+					Table table = null;
+					table = FindTableBase(Tables, (string)dr["OBJECT_NAME"], (string)dr["OBJECT_SCHEMA"]);
+					if (table != null)
+					{
+						table.PartitionSQL = (string)dr["PartitionSQL"];
+					}
+				}
+			}
+		}
+
+		private void LoadPartitionSchemes(SqlCommand cm)
+		{
+			//get partition schemes
+			cm.CommandText = @"
+				SELECT OBJECT_NAME = PS.NAME, PARTITION_FUNCTION_NAME = PF.name,
+					FILE_GROUPS = STUFF( 
+					(SELECT  N',' +QUOTENAME(DS.name) AS [text()]
+						FROM  sys.destination_data_spaces AS DDS 
+						INNER JOIN sys.data_spaces AS DS ON DDS.data_space_id = DS.data_space_id
+						WHERE DDS.partition_scheme_id = PS.data_space_id
+						ORDER BY DDS.destination_id
+						FOR XML PATH('')), 1, 1, N'')
+				FROM sys.partition_schemes AS PS
+				INNER JOIN sys.partition_functions AS PF ON PS.function_id = PF.function_id";
+
+			using (var dr = cm.ExecuteReader())
+			{
+				while (dr.Read())
+				{
+					PartitionScheme ps = new PartitionScheme((string)dr["OBJECT_NAME"]);
+					ps.PartitionFunctionName = (string)dr["PARTITION_FUNCTION_NAME"];
+					ps.FileGroups = (string)dr["FILE_GROUPS"];
+					PartitionSchemes.Add(ps);
+				}
+			}
+		}
+
+
+		private void LoadPartitionFunctions(SqlCommand cm)
+		{
+			//get partition schemes
+			cm.CommandText = @"
+				SELECT
+					OBJECT_NAME = pf.Name,
+					PARAMETER_TYPE = t.name, 
+					RANGE_TYPE = CASE WHEN pf.type = 'R' THEN 'RIGHT' ELSE 'LEFT' END,
+					RANGE_VALUES  =
+					(SELECT
+						STUFF((SELECT
+							N','
+							+ CASE
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') IN(N'char', N'varchar') 
+									THEN QUOTENAME(CAST(r.value AS nvarchar(4000)), '''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') IN(N'nchar', N'nvarchar') 
+									THEN N'N' + QUOTENAME(CAST(r.value AS nvarchar(4000)), '''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'date' 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS date), 'yyyy-MM-dd'),'''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'datetime' 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS datetime), 'yyyy-MM-ddTHH:mm:ss'),'''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') IN(N'datetime', N'smalldatetime') 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS datetime), 'yyyy-MM-ddTHH:mm:ss.fff'),'''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'datetime2' 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS datetime2), 'yyyy-MM-ddTHH:mm:ss.fffffff'),'''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'datetimeoffset' 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS datetimeoffset), 'yyyy-MM-dd HH:mm:ss.fffffff K'),'''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'time' 
+									THEN N'N' + QUOTENAME(FORMAT(CAST(r.value AS time), 'hh\:mm\:ss\.fffffff'),'''') --'HH\:mm\:ss\.fffffff'
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') = N'uniqueidentifier' 
+									THEN QUOTENAME(CAST(r.value AS nvarchar(4000)), '''')
+								  WHEN SQL_VARIANT_PROPERTY(r.value, 'BaseType') IN (N'binary', N'varbinary') 
+									THEN CONVERT(nvarchar(4000), r.value, 1)
+								  ELSE CAST(r.value AS nvarchar(4000))
+							  END
+					FROM sys.partition_range_values AS r
+					WHERE pf.[function_id] = r.[function_id]
+					FOR XML PATH(''), TYPE).value('.', 'nvarchar(MAX)'),1,1,N'')
+					) 
+				FROM sys.partition_functions pf
+				INNER JOIN sys.partition_parameters AS pp ON pp.function_id = pf.function_id
+				INNER JOIN sys.types AS t ON t.system_type_id = pp.system_type_id AND t.user_type_id = pp.user_type_id";
+
+			using (var dr = cm.ExecuteReader())
+			{
+				while (dr.Read())
+				{
+					PartitionFunction pf = new PartitionFunction((string)dr["OBJECT_NAME"]);
+					pf.ParameterType = (string)dr["PARAMETER_TYPE"];
+					pf.RangeType = (string)dr["RANGE_TYPE"];
+					pf.RangeValues = (string)dr["RANGE_VALUES"];
+					PartitionFunctions.Add(pf);
 				}
 			}
 		}
@@ -1230,7 +1460,8 @@ where name = @dbname
 			WriteScriptDir("table_types", TableTypes.ToArray(), log);
 			WriteScriptDir("user_defined_types", UserDefinedTypes.ToArray(), log);
 			WriteScriptDir("foreign_keys", ForeignKeys.OrderBy(x => x, ForeignKeyComparer.Instance).ToArray(), log);
-			foreach (var routineType in Routines.GroupBy(x => x.RoutineType)) {
+			foreach (var routineType in Routines.GroupBy(x => x.RoutineType))
+			{
 				var dir = routineType.Key.ToString().ToLower() + "s";
 				WriteScriptDir(dir, routineType.ToArray(), log);
 			}
@@ -1239,6 +1470,9 @@ where name = @dbname
 			WriteScriptDir("roles", Roles.ToArray(), log);
 			WriteScriptDir("users", Users.ToArray(), log);
 			WriteScriptDir("synonyms", Synonyms.ToArray(), log);
+
+			WriteScriptDir("partition_functions", PartitionFunctions.ToArray(), log);
+			WriteScriptDir("partition_schemes", PartitionSchemes.ToArray(), log);
 
 			ExportData(tableHint, log);
 		}
@@ -1297,9 +1531,15 @@ where name = @dbname
 			// Dont' include schema name for objects in the dbo schema.
 			// This maintains backward compatability for those who use
 			// SchemaZen to keep their schemas under version control.
-			var fileName = name;
-			if (!string.IsNullOrEmpty(schema) && schema.ToLower() != "dbo") {
-				fileName = $"{schema}.{name}";
+			var fileName = $"[{name}]";
+			//if (!string.IsNullOrEmpty(schema) && schema.ToLower() != "dbo") {
+			if (!string.IsNullOrEmpty(schema) ) {
+				//fileName = $"{schema}.{name}";
+				fileName = $"[{schema}].[{name}]";
+			}
+			if (string.IsNullOrEmpty(fileName))
+			{
+				fileName = "FILENAME_EMPTY_OR_NULL";
 			}
 			return Path.GetInvalidFileNameChars().Aggregate(fileName, (current, invalidChar) => current.Replace(invalidChar, '-'));
 		}
@@ -1376,9 +1616,9 @@ where name = @dbname
 					log(TraceLevel.Verbose, $"Importing data for table {schema}.{table}...");
 					t.ImportData(Connection, fi.FullName);
 				} catch (SqlBatchException ex) {
-					throw new DataFileException(ex.Message, fi.FullName, ex.LineNumber);
+					throw new DataFileException(ex.ToString(), fi.FullName, ex.LineNumber);
 				} catch (Exception ex) {
-					throw new DataFileException(ex.Message, fi.FullName, -1);
+					throw new DataFileException(ex.ToString(), fi.FullName, -1);
 				}
 			}
 			log(TraceLevel.Info, "Data imported successfully.");
@@ -1632,6 +1872,7 @@ where name = @dbname
 				text.AppendLine("GO");
 				text.AppendLine();
 			}
+
 
 			//delete foreign keys
 			if (ForeignKeysDeleted.Count + ForeignKeysDiff.Count > 0) {

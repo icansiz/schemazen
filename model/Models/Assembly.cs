@@ -3,9 +3,8 @@ using System.Linq;
 using System.Runtime.Remoting.Metadata.W3cXsd2001;
 
 namespace SchemaZen.Library.Models {
-	public class SqlAssembly : INameable, IScriptable {
+	public class SqlAssembly : BaseDBObject {
 		public List<KeyValuePair<string, byte[]>> Files = new List<KeyValuePair<string, byte[]>>();
-		public string Name { get; set; }
 		public string PermissionSet;
 
 		public SqlAssembly(string permissionSet, string name) {
@@ -19,7 +18,7 @@ namespace SchemaZen.Library.Models {
 				PermissionSet = "UNSAFE";
 		}
 
-		public string ScriptCreate() {
+		public override string ScriptCreate() {
 			var commands = Files.Select((kvp, index) => {
 				if (index == 0) {
 					return $"CREATE ASSEMBLY [{Name}]\r\n{string.Empty}FROM {"0x" + new SoapHexBinary(kvp.Value).ToString()}\r\n{"WITH PERMISSION_SET = " + PermissionSet}";
