@@ -79,7 +79,7 @@ namespace SchemaZen.Library.Models {
 			text.Append(ExtendedProperties.Script());
 			text.AppendLine();
 
-			var header = HeaderScriptCreate();
+			var header = HeaderScriptCreate(Owner);
 
 			return header + before + definition + after + text.ToString();
 		}

@@ -14,7 +14,7 @@ namespace SchemaZen.Library.Command {
 		public ILogger Logger { get; set; }
 		public bool Overwrite { get; set; }
 
-		public Database CreateDatabase(IList<string> filteredTypes = null) {
+		public Database CreateDatabase(IList<string> filteredTypes = null, string dbName = null) {
 			filteredTypes = filteredTypes ?? new List<string>();
 
 			if (!string.IsNullOrEmpty(ConnectionString)) {
@@ -26,7 +26,8 @@ namespace SchemaZen.Library.Command {
 				}
 				return new Database(filteredTypes) {
 					Connection = ConnectionString,
-					Dir = ScriptDir
+					Dir = ScriptDir,
+					DbName = dbName
 				};
 			}
 			if (string.IsNullOrEmpty(Server) || string.IsNullOrEmpty(DbName)) {
@@ -47,7 +48,8 @@ namespace SchemaZen.Library.Command {
 			}
 			return new Database(filteredTypes) {
 				Connection = builder.ToString(),
-				Dir = ScriptDir
+				Dir = ScriptDir,
+				DbName = dbName
 			};
 		}
 

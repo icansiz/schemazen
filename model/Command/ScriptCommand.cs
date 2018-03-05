@@ -14,7 +14,7 @@ namespace SchemaZen.Library.Command {
 				throw new InvalidOperationException(message);
 			}
 
-			var db = CreateDatabase(filteredTypes);
+			var db = CreateDatabase(filteredTypes, DbName);
 
 			Logger.Log(TraceLevel.Verbose, "Loading database schema...");
 			db.Load();

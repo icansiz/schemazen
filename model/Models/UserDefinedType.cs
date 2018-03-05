@@ -84,7 +84,7 @@ namespace SchemaZen.Library.Models {
 
 		public override string ScriptCreate() {
 			var text = new StringBuilder();
-
+			HeaderScriptCreate(Owner);
 			text.Append($"CREATE TYPE [{Owner}].[{Name}] FROM [{BaseTypeName}]");
 
 			if (HasMaxLength()) {

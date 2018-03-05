@@ -21,23 +21,24 @@ namespace SchemaZen.Library.Models {
 
 		public override string ScriptCreate() {
 			return $@"
-if not exists(select s.schema_id from sys.schemas s where s.name = '{Name}') 
-	and exists(select p.principal_id from sys.database_principals p where p.name = '{Owner}') begin
-	exec sp_executesql N'create schema [{Name}] authorization [{Owner}]'
-end
-";
+			if not exists(select s.schema_id from sys.schemas s where s.name = '{Name}') 
+				and exists(select p.principal_id from sys.database_principals p where p.name = '{Owner}') begin
+				exec sp_executesql N'create schema [{Name}] authorization [{Owner}]'
+			end
+			";
 		}
 	}
 
 	public class Table : BaseDBObject, IHasOwner {
         private const string _rowSeparator = "\r\n";
         private const string _tab = "\t";
-		private const string _escapeTab = "--SchemaZenTAB--";
+		private const string _delimiter = ";";
+		private const string _escapeTab = "--TAB--";
 		private const string _carriageReturn  = "\r";
-		private const string _escapeCarriageReturn = "--SchemaZenCR--";
+		private const string _escapeCarriageReturn = "--CR--";
         private const string _lineFeed = "\n";
-        private const string _escapeLineFeed = "--SchemaZenLF--";
-        private const string _nullValue = "--SchemaZenNull--";
+        private const string _escapeLineFeed = "--LF--";
+        private const string _nullValue = "--Null--";
 	    private const string _dateTimeFormat = "yyyy-MM-dd HH:mm:ss.FFFFFFF";
 
         public const int RowsInBatch = 15000;
@@ -148,7 +149,7 @@ end
 
 		public override string ScriptCreate() {
 			var text = new StringBuilder();
-			text.Append(HeaderScriptCreate());
+			text.Append(HeaderScriptCreate(Owner));
 
 			text.AppendLine($"CREATE {(IsType ? "TYPE" : "TABLE")} [{Owner}].[{Name}] {(IsType ? "AS TABLE " : string.Empty)}(\r\n");
 			text.Append(Columns.Script());
@@ -181,14 +182,17 @@ end
 		public void ExportData(string conn, TextWriter data, string tableHint = null) {
 			if (IsType)
 				throw new InvalidOperationException();
-
+			var header = new StringBuilder();
 			var sql = new StringBuilder();
 			sql.Append("select ");
 			var cols = Columns.Items.Where(c => string.IsNullOrEmpty(c.ComputedDefinition)).ToArray();
 			foreach (var c in cols) {
 				sql.Append($"[{c.Name}],");
+				header.Append($"{c.Name};");
 			}
 			sql.Remove(sql.Length - 1, 1);
+			header.Remove(header.Length - 1, 1);
+			data.WriteLine(header);
 			sql.Append($" from [{Owner}].[{Name}]");
 			if (!string.IsNullOrEmpty(tableHint))
 				sql.Append($" WITH ({tableHint})");
@@ -211,7 +215,7 @@ end
                                         .Replace(_lineFeed, _escapeLineFeed)
                                         .Replace(_carriageReturn, _escapeCarriageReturn));
 								if (c != cols.Last())
-									data.Write(_tab);
+									data.Write(_delimiter);
 							}
 							data.WriteLine();
 						}
