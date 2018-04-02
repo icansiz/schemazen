@@ -26,7 +26,7 @@ namespace SchemaZen.Library.Models
 			text.AppendLine($"/**********************************************************************************");
 			text.AppendLine($"        Object Name      : {objectName}");  
 			text.AppendLine($"        Create Date      : {String.Format("{0:u}", CreateDate)}"); //  "2008-03-09 16:05:07Z" 
-			text.AppendLine($"        Modify Date      : {String.Format("{0:u}", ModifyDate)}");
+			//text.AppendLine($"        Modify Date      : {String.Format("{0:u}", ModifyDate)}");
 			if (!string.IsNullOrEmpty(ModifyHostName))
 				text.AppendLine($"        Modify Host Name : {ModifyHostName}");
 			if (!string.IsNullOrEmpty(ModifyUserName))
