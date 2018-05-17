@@ -929,40 +929,50 @@ order by fk.name, fkc.constraint_column_id
 
 		private static void LoadColumnsBase(IDataReader dr, List<Table> tables)
 		{
-			Table table = null;
-
-			while (dr.Read())
+			try
 			{
-				var c = new Column
-				{
-					Name = (string)dr["COLUMN_NAME"],
-					Type = (string)dr["DATA_TYPE"],
-					IsNullable = (string)dr["IS_NULLABLE"] == "YES",
-					Position = (int)dr["ORDINAL_POSITION"],
-					IsRowGuidCol = (string)dr["IS_ROW_GUID_COL"] == "YES"
-				};
+				Table table = null;
 
-				switch (c.Type)
+				while (dr.Read())
 				{
-					case "binary":
-					case "char":
-					case "nchar":
-					case "nvarchar":
-					case "varbinary":
-					case "varchar":
-						c.Length = (int)dr["CHARACTER_MAXIMUM_LENGTH"];
-						break;
-					case "decimal":
-					case "numeric":
-						c.Precision = (byte)dr["NUMERIC_PRECISION"];
-						c.Scale = (int)dr["NUMERIC_SCALE"];
-						break;
+					var c = new Column
+					{
+						Name = (string)dr["COLUMN_NAME"],
+						Type = (string)dr["DATA_TYPE"],
+						IsNullable = (string)dr["IS_NULLABLE"] == "YES",
+						Position = (int)dr["ORDINAL_POSITION"],
+						IsRowGuidCol = (string)dr["IS_ROW_GUID_COL"] == "YES"
+					};
+
+					switch (c.Type)
+					{
+						case "binary":
+						case "char":
+						case "nchar":
+						case "nvarchar":
+						case "varbinary":
+						case "varchar":
+							c.Length = (int)dr["CHARACTER_MAXIMUM_LENGTH"];
+							break;
+						case "decimal":
+						case "numeric":
+							c.Precision = (byte)dr["NUMERIC_PRECISION"];
+							c.Scale = (int)dr["NUMERIC_SCALE"];
+							break;
+					}
+
+					if (table == null || table.Name != (string)dr["TABLE_NAME"] || table.Owner != (string)dr["TABLE_SCHEMA"])
+					{                       // only do a lookup if the table we have isn't already the relevant one
+						table = FindTableBase(tables, (string)dr["TABLE_NAME"], (string)dr["TABLE_SCHEMA"]);
+					}
+					table.Columns.Add(c);
 				}
 
-				if (table == null || table.Name != (string)dr["TABLE_NAME"] || table.Owner != (string)dr["TABLE_SCHEMA"])
-					// only do a lookup if the table we have isn't already the relevant one
-					table = FindTableBase(tables, (string)dr["TABLE_NAME"], (string)dr["TABLE_SCHEMA"]);
-				table.Columns.Add(c);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine(ex.ToString());
+				throw;
 			}
 		}
 
@@ -991,10 +1001,11 @@ order by fk.name, fkc.constraint_column_id
 					s.name as TABLE_SCHEMA,
 					tt.name as TABLE_NAME,
 					o.create_date as CREATE_DATE,
-					o.modify_date as MODIFY_DATE
+					o.modify_date as MODIFY_DATE,tt.*
+
 				from sys.table_types tt
 				inner join sys.schemas s on tt.schema_id = s.schema_id
-				inner join sys.objects o on o.name like 'TT_%'+tt.name+'%'
+				inner join sys.objects o on o.object_id = tt.type_table_object_id
 				where tt.is_user_defined = 1
 				order by s.name, tt.name";
 				using (var dr = cm.ExecuteReader())
@@ -1002,8 +1013,9 @@ order by fk.name, fkc.constraint_column_id
 					LoadTablesBase(dr, true, TableTypes, DbName);
 				}
 			}
-			catch (SqlException)
+			catch (SqlException ex)
 			{
+				Console.WriteLine(ex);
 				// SQL server version doesn't support table types, nothing to do here
 			}
 		}
@@ -1852,7 +1864,7 @@ where name = @dbname
 			if (log == null) log = (tl, s) => { };
 
 			var dataDir = Dir + "\\data";
-			if (!Directory.Exists(dataDir))	
+			if (!Directory.Exists(dataDir))
 			{
 				log(TraceLevel.Verbose, "No data to import.");
 				return;
