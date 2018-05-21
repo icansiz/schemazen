@@ -59,7 +59,10 @@ namespace SchemaZen.Library.Command {
 				Console.WriteLine($"warning: could not find data table {schema}.{name}");
 			}
 			if (db.DataTables.Contains(t)) return;
-			db.DataTables.Add(t);
+			if (t != null)
+			{
+				db.DataTables.Add(t);
+			}
 		}
 	}
 }

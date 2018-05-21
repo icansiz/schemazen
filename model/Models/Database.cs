@@ -783,7 +783,7 @@ order by fk.name, fkc.constraint_column_id
 						object_schema_name(object_id) as TABLE_SCHEMA,
 						object_name(object_id) as TABLE_NAME,
 						name as COLUMN_NAME,
-						definition as DEFINITION,
+						ISNULL(definition,'ENCRYPTED') as DEFINITION,
 						is_persisted as PERSISTED
 					from sys.computed_columns cc
 					";
@@ -792,9 +792,12 @@ order by fk.name, fkc.constraint_column_id
 				while (dr.Read())
 				{
 					var t = FindTable((string)dr["TABLE_NAME"], (string)dr["TABLE_SCHEMA"]);
-					var column = t.Columns.Find((string)dr["COLUMN_NAME"]);
-					column.ComputedDefinition = (string)dr["DEFINITION"];
-					column.Persisted = (bool)dr["PERSISTED"];
+					if (t != null) // if the column is in a table-valued function, t is null  
+					{
+						var column = t.Columns.Find((string)dr["COLUMN_NAME"]);
+						column.ComputedDefinition = (string)dr["DEFINITION"];
+						column.Persisted = (bool)dr["PERSISTED"];
+					}
 				}
 			}
 		}
@@ -1384,7 +1387,7 @@ where name = @dbname
 			cm.CommandText = @"
 				select * FROM (
 					select SchemaName, ObjectName, HostName, UserName, ZTime, RowNum = ROW_NUMBER() OVER (PARTITION BY SchemaName, ObjectName 
-					order by SchemaName, ObjectName, ZTime DESC) from dba.DB_EVENTS where ISNULL(SchemaName,'') != ''
+					order by SchemaName, ObjectName, ZTime DESC) from dba.DB_EVENTS where ISNULL(SchemaName,'') != '' AND ObjectName IS NOT NULL
 				) AS x
 				where RowNum = 1
 				";
@@ -1414,7 +1417,7 @@ where name = @dbname
 			}
 			catch (SqlException)
 			{
-				// SQL server version doesn't support synonyms, nothing to do here
+				// 
 			}
 		}
 
@@ -1814,32 +1817,44 @@ where name = @dbname
 			if (!DataTables.Any())
 				return;
 			var dataDir = Dir + "/data";
-			if (!Directory.Exists(dataDir))
-			{
-				Directory.CreateDirectory(dataDir);
-			}
-			log?.Invoke(TraceLevel.Info, "Exporting data...");
-			var index = 0;
-			foreach (var t in DataTables)
-			{
-				log?.Invoke(TraceLevel.Verbose, $"Exporting data from {t.Owner + "." + t.Name} (table {++index} of {DataTables.Count})...");
-				var filePathAndName = dataDir + "/" + MakeFileName(t) + ".csv";
-				using (var sw = new StreamWriter(filePathAndName, true, Encoding.UTF8))
+
+
+				if (!Directory.Exists(dataDir))
 				{
-					t.ExportData(Connection, sw, tableHint);
-					sw.Flush();
-					if (sw.BaseStream.Length == 0)
-					{
-						log?.Invoke(TraceLevel.Verbose, $"          No data to export for {t.Owner + "." + t.Name}, deleting file...");
-						sw.Close();
-						File.Delete(filePathAndName);
-					}
-					else
-					{
-						sw.Close();
-					}
+					Directory.CreateDirectory(dataDir);
 				}
+				log?.Invoke(TraceLevel.Info, "Exporting data...");
+				var index = 0;
+				foreach (var t in DataTables)
+				{
+					try
+					{
+						log?.Invoke(TraceLevel.Verbose, $"Exporting data from {t.Owner + "." + t.Name} (table {++index} of {DataTables.Count})...");
+						var filePathAndName = dataDir + "/" + MakeFileName(t) + ".csv";
+						using (var sw = new StreamWriter(filePathAndName, true, Encoding.UTF8))
+						{
+							t.ExportData(Connection, sw, tableHint);
+							sw.Flush();
+							if (sw.BaseStream.Length == 0)
+							{
+								log?.Invoke(TraceLevel.Verbose, $"          No data to export for {t.Owner + "." + t.Name}, deleting file...");
+								sw.Close();
+								File.Delete(filePathAndName);
+							}
+							else
+							{
+								sw.Close();
+							}
+						}
+					}
+					catch (Exception ex)
+					{
+						log(TraceLevel.Verbose, "Error occured while exporting data");
+						log(TraceLevel.Verbose, ex.ToString());
+					}
+
 			}
+
 		}
 
 		public static string ScriptPropList(IList<DbProp> props)

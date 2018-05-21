@@ -27,7 +27,10 @@ namespace SchemaZen.Library.Command {
             if (!string.IsNullOrEmpty(dataTablesPattern) || !string.IsNullOrEmpty(dataTablesExcludePattern)) {
                 var tables = db.FindTablesRegEx(dataTablesPattern, dataTablesExcludePattern);
                 foreach (var t in tables.Where(t => !db.DataTables.Contains(t))) {
-                    db.DataTables.Add(t);
+					if (t != null)
+					{
+						db.DataTables.Add(t);
+					}
                 }
             }
 
