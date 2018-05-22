@@ -1769,11 +1769,12 @@ where name = @dbname
 			var index = 0;
 			foreach (var o in objects)
 			{
-				log(TraceLevel.Verbose, $"Scripting {name} {++index} of {objects.Count}...{(index < objects.Count ? "\r" : string.Empty)}");
+				//log(TraceLevel.Verbose, $"Scripting {name} {++index} of {objects.Count}...{(index < objects.Count ? "\r" : string.Empty)}");
 				var filePath = Path.Combine(dir, MakeFileName(o) + ".sql");
 				var script = o.ScriptCreate() + "\r\nGO\r\n";
 				File.AppendAllText(filePath, script);
 			}
+			log(TraceLevel.Verbose, $"Scripting {name} ({objects.Count}) completed.");
 		}
 
 		private static string MakeFileName(object o)

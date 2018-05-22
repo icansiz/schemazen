@@ -37,6 +37,8 @@ namespace SchemaZen.Library.Command {
 		    db.ScriptToDir(tableHint, Logger.Log);
 
 			Logger.Log(TraceLevel.Info, $"{Environment.NewLine}Snapshot successfully created at {db.Dir}");
+
+			/*
 			var routinesWithWarnings = db.Routines.Select(r => new {
 				Routine = r,
 				Warnings = r.Warnings().ToList()
@@ -52,6 +54,7 @@ namespace SchemaZen.Library.Command {
 					Logger.Log(TraceLevel.Warning, warning);
 				}
 			}
+			*/
 		}
 	}
 }
